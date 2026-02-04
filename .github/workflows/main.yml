@@ -5,7 +5,7 @@ on:
   workflow_dispatch:
 
 env:
-  TOOLCHAIN: default
+  TOOLCHAIN: cruel
   INSTALLER: yes
 
 jobs:
@@ -18,16 +18,16 @@ jobs:
         model: [ "G975N" ]
 
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v3
 
-      - uses: actions/setup-python@v2
+      - uses: actions/setup-python@v4
         with:
           python-version: '3.7'
 
       - name: Install dependencies
         env:
           DEBIAN_FRONTEND: noninteractive
-        run: sudo apt-get install -y -qq libtinfo5 ccache
+        run: sudo apt-get update -y -qq && sudo apt-get install -y -qq libtinfo5 ccache
 
       - name: Disable compression in ccache and set ccache path
         run: ccache -o compression=false -o cache_dir=$HOME/.ccache
@@ -35,12 +35,13 @@ jobs:
       - name: Prepare ccache timestamp
         id: ccache_timestamp
         run: |
-          echo "::set-output name=FULL_DATE::$(date +'%Y-%m-%d')"
-          echo "::set-output name=MONTH_DATE::$(date +'%Y-%m')"
+          echo "FULL_DATE=$(date +'%Y-%m-%d')" >> $GITHUB_OUTPUT
+          echo "MONTH_DATE=$(date +'%Y-%m')" >> $GITHUB_OUTPUT
 
-      - name: Create cache key from ${{ matrix.model }}
+      - name: Create cache key from model
         id: ccache_model_key
-        run: echo "::set-output name=KEY::$( echo ${{ matrix.model }} | tr ',' '_' )"
+        run: |
+          echo "KEY=$( echo '${{ matrix.model }}' | tr ',' '_' )" >> $GITHUB_OUTPUT
 
       - name: Cache ccache files
         uses: actions/cache@v3
@@ -51,6 +52,9 @@ jobs:
             ccache-${{ env.TOOLCHAIN }}-${{ steps.ccache_model_key.outputs.KEY }}-${{ steps.ccache_timestamp.outputs.MONTH_DATE }}
             ccache-${{ env.TOOLCHAIN }}-${{ steps.ccache_model_key.outputs.KEY }}-
             ccache-${{ env.TOOLCHAIN }}-
+
+      - name: Make cruelbuild executable
+        run: chmod +x ./cruelbuild
 
       - name: Kernel Configure
         run: |
@@ -109,10 +113,10 @@ jobs:
           chmod +x avbtool.py
           sudo mv avbtool.py /usr/local/bin/avbtool
 
-      - name: Create CruelKernel images for ${{ matrix.model }}
+      - name: Create CruelKernel images
         run: ./cruelbuild :mkimg
 
-      - name: Create CruelKernel installer for ${{ matrix.model }}
+      - name: Create CruelKernel installer
         if: env.INSTALLER == 'yes'
         run: ./cruelbuild :pack
 
@@ -128,6 +132,14 @@ jobs:
         with:
           name: CruelKernel-${{ matrix.model }}
           path: installer/*
+          if-no-files-found: error
+
+      - name: Upload Kernel Images
+        if: env.INSTALLER != 'yes'
+        uses: actions/upload-artifact@v4
+        with:
+          name: CruelKernel-${{ matrix.model }}
+          path: '*.img'
           if-no-files-found: error
 
       - name: Upload Kernel Info
